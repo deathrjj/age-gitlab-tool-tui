@@ -48,9 +48,9 @@ func updateBottomBar(app *tview.Application, bottomBar *tview.TextView, searchIn
 		text = "⇥ : Switch to Encrypt Button"
 	} else if focused == encryptButton {
 		if dataInput.GetText() != "" {
-			text = "⏎ : Encrypt | ⇥ : Switch to Users"
+			text = "⏎ : Encrypt | ⇥ : Switch to Recipients"
 		} else {
-			text = "⇥ : Switch to Users"
+			text = "⇥ : Switch to Recipients"
 		}
 	}
 	bottomBar.SetText(text)
@@ -280,7 +280,7 @@ func main() {
 		usersPanel := tview.NewFlex().SetDirection(tview.FlexRow).
 			AddItem(searchInput, 3, 0, true).
 			AddItem(userList, 0, 1, false)
-		usersPanel.SetBorder(true).SetTitle("Users")
+		usersPanel.SetBorder(true).SetTitle("Recipients")
 
 		// Create Data panel as a text area.
 		dataInput = tview.NewTextArea().
