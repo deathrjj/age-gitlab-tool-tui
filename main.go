@@ -279,7 +279,7 @@ func main() {
 		usersPanel.SetBorder(true).SetTitle("Users")
 
 		// Create Data panel as a simple input field.
-		dataInput = tview.NewInputField().SetLabel("Data: ")
+		dataInput = tview.NewInputField()
 		dataInput.SetDoneFunc(func(key tcell.Key) {
 			// Do nothing on Done.
 		})
@@ -316,6 +316,10 @@ func main() {
 			return event
 		})
 
+		dataPanel := tview.NewFlex().SetDirection(tview.FlexRow).
+			AddItem(dataInput, 0, 1, false)
+		dataPanel.SetBorder(true).SetTitle("Data")
+
 		// Create Bottom bar.
 		bottomBar = tview.NewTextView().
 			SetDynamicColors(true).
@@ -325,7 +329,7 @@ func main() {
 		// Main layout: two columns on top, bottom bar as last row.
 		mainFlex := tview.NewFlex().
 			AddItem(usersPanel, 0, 1, true).
-			AddItem(dataInput, 0, 2, true)
+			AddItem(dataPanel, 0, 1, true)
 		layout = tview.NewFlex().SetDirection(tview.FlexRow).
 			AddItem(mainFlex, 0, 1, true).
 			AddItem(bottomBar, 1, 0, false)
