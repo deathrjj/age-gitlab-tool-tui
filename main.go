@@ -35,7 +35,6 @@ var httpClient = &http.Client{
 }
 
 // fetchUsers retrieves GitLab users page by page.
-// It stops when a page returns fewer than perPage users.
 func fetchUsers() ([]User, error) {
 	baseURL := os.Getenv("GITLAB_URL")
 	token := os.Getenv("GITLAB_TOKEN")
@@ -167,13 +166,19 @@ type TextArea struct {
 	*tview.Box
 	text         string
 	inputCapture func(event *tcell.EventKey) *tcell.EventKey
+	focusable    bool
 }
 
 func NewTextArea() *TextArea {
 	return &TextArea{
-		Box:  tview.NewBox(),
-		text: "",
+		Box:       tview.NewBox(),
+		text:      "",
+		focusable: true,
 	}
+}
+
+func (ta *TextArea) SetFocusable(f bool) {
+	ta.focusable = f
 }
 
 func (ta *TextArea) Draw(screen tcell.Screen) {
@@ -219,7 +224,9 @@ func (ta *TextArea) GetText() string {
 }
 
 func (ta *TextArea) Focus(delegate func(p tview.Primitive)) {
-	delegate(ta)
+	if ta.focusable {
+		delegate(ta)
+	}
 }
 
 func (ta *TextArea) Blur() {}
@@ -245,10 +252,17 @@ func updateBottomBar(app *tview.Application, bottomBar *tview.TextView, searchIn
 func main() {
 	app := tview.NewApplication()
 
+	// Show a loading screen.
 	loadingText := tview.NewTextView().
 		SetText("Loading users...").
 		SetTextAlign(tview.AlignCenter)
 	app.SetRoot(loadingText, true)
+
+	// Declare variables in outer scope.
+	var searchInput *tview.InputField
+	var dataInput *TextArea
+	var layout tview.Primitive
+	var bottomBar *tview.TextView
 
 	go func() {
 		users, err := fetchUsers()
@@ -267,10 +281,6 @@ func main() {
 		allUsers = users
 		filteredUsers = users
 
-		// Declare searchInput and layout in outer scope.
-		var searchInput *tview.InputField
-		var layout tview.Primitive
-
 		// Create user list.
 		userList := tview.NewList()
 		updateUserList(userList, filteredUsers)
@@ -284,11 +294,18 @@ func main() {
 			} else {
 				selectedUsers[u.ID] = true
 			}
-			// Preserve the current index by updating the list and then setting the same index.
 			updateUserList(userList, filteredUsers)
 			userList.SetCurrentItem(index)
+			updateBottomBar(app, bottomBar, searchInput, userList, dataInput)
 		})
 		userList.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+			if event.Key() == tcell.KeyTab {
+				if len(selectedUsers) > 0 {
+					app.SetFocus(dataInput)
+					updateBottomBar(app, bottomBar, searchInput, userList, dataInput)
+				}
+				return nil
+			}
 			switch event.Key() {
 			case tcell.KeyUp, tcell.KeyDown, tcell.KeyEnter:
 				return event
@@ -296,9 +313,11 @@ func main() {
 				app.SetFocus(searchInput)
 				current := searchInput.GetText()
 				searchInput.SetText(current + string(event.Rune()))
+				updateBottomBar(app, bottomBar, searchInput, userList, dataInput)
 				return nil
 			default:
 				app.SetFocus(searchInput)
+				updateBottomBar(app, bottomBar, searchInput, userList, dataInput)
 				return event
 			}
 		})
@@ -313,12 +332,13 @@ func main() {
 				}
 			}
 			updateUserList(userList, filteredUsers)
+			updateBottomBar(app, bottomBar, searchInput, userList, dataInput)
 		})
-		
 		searchInput.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 			switch event.Key() {
 			case tcell.KeyUp, tcell.KeyDown, tcell.KeyEnter:
 				app.SetFocus(userList)
+				updateBottomBar(app, bottomBar, searchInput, userList, dataInput)
 				return nil
 			}
 			return event
@@ -330,12 +350,14 @@ func main() {
 			AddItem(userList, 0, 1, false)
 		usersPanel.SetBorder(true).SetTitle("Users")
 
-		// Data panel.
-		dataInput := NewTextArea()
+		// Create Data panel.
+		dataInput = NewTextArea()
 		dataInput.SetBorder(true).SetTitle("Data")
+		dataInput.SetFocusable(true)
 		dataInput.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 			if event.Key() == tcell.KeyTab {
 				app.SetFocus(userList)
+				updateBottomBar(app, bottomBar, searchInput, userList, dataInput)
 				return nil
 			}
 			if event.Key() == tcell.KeyCtrlX {
@@ -349,6 +371,7 @@ func main() {
 									AddButtons([]string{"OK"}).
 									SetDoneFunc(func(buttonIndex int, buttonLabel string) {
 										app.SetRoot(layout, true).SetFocus(dataInput)
+										updateBottomBar(app, bottomBar, searchInput, userList, dataInput)
 									})
 								app.SetRoot(modal, false)
 							})
@@ -360,23 +383,26 @@ func main() {
 				}
 				return nil
 			}
+			updateBottomBar(app, bottomBar, searchInput, userList, dataInput)
 			return event
 		})
 
-		// Bottom bar.
-		bottomBar := tview.NewTextView().SetDynamicColors(true)
-		bottomBar.SetTextAlign(tview.AlignCenter)
-		updateBottomBar(app, bottomBar, searchInput, userList, dataInput)
+		// Create Bottom bar and set an initial text.
+		bottomBar = tview.NewTextView().
+			SetDynamicColors(true).
+			SetTextAlign(tview.AlignCenter)
+		// Set an initial bottom bar text so it's visible immediately.
+		bottomBar.SetText("↑/↓: move highlight | Enter: toggle selection")
 
 		mainFlex := tview.NewFlex().
 			AddItem(usersPanel, 0, 1, true).
-			AddItem(dataInput, 0, 2, false)
+			AddItem(dataInput, 0, 2, true)
 		layout = tview.NewFlex().SetDirection(tview.FlexRow).
 			AddItem(mainFlex, 0, 1, true).
 			AddItem(bottomBar, 1, 0, false)
 
-		time.Sleep(100 * time.Millisecond)
 		app.QueueUpdateDraw(func() {
+			bottomBar.SetText("↑/↓: move highlight | Enter: toggle selection")
 			app.SetRoot(layout, true).SetFocus(userList)
 		})
 	}()
