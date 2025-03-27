@@ -40,14 +40,14 @@ func updateBottomBar(app *tview.Application, bottomBar *tview.TextView, searchIn
 	focused := app.GetFocus()
 	var text string
 	if focused == userList || focused == searchInput {
-		text = "↑/↓: move highlight | Enter: toggle selection"
+		text = "↑/↓: Move Highlight | ⏎ : Toggle Selection"
 		if len(selectedUsers) > 0 {
-			text += " | Tab: Switch to Data"
+			text += " | ⇥ : Switch to Data"
 		}
 	} else if focused == dataInput {
-		text = "Tab: Switch to Users"
+		text = "⇥ : Switch to Users"
 		if dataInput.GetText() != "" {
-			text += " | Ctrl+X: Encrypt"
+			text += " | ⏎ : Encrypt"
 		}
 	}
 	bottomBar.SetText(text)
@@ -289,7 +289,7 @@ func main() {
 				updateBottomBar(app, bottomBar, searchInput, userList, dataInput)
 				return nil
 			}
-			if event.Key() == tcell.KeyCtrlX {
+			if event.Key() == tcell.KeyEnter {
 				if dataInput.GetText() != "" {
 					go func() {
 						encrypted, err := encryptData(dataInput.GetText(), selectedUsers)
