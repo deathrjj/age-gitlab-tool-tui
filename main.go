@@ -255,7 +255,7 @@ func main() {
 		})
 
 		// Create search input.
-		searchInput = tview.NewInputField().SetLabel("Search: ")
+		searchInput = tview.NewInputField()
 		searchInput.SetChangedFunc(func(text string) {
 			filteredUsers = nil
 			for _, user := range allUsers {
