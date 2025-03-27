@@ -36,7 +36,7 @@ var httpClient = &http.Client{
 }
 
 // updateBottomBar updates the bottom bar text based on current focus.
-func updateBottomBar(app *tview.Application, bottomBar *tview.TextView, searchInput *tview.InputField, userList *tview.List, dataInput *tview.InputField) {
+func updateBottomBar(app *tview.Application, bottomBar *tview.TextView, searchInput *tview.InputField, userList *tview.List, dataInput *tview.TextArea, encryptButton *tview.Button) {
 	focused := app.GetFocus()
 	var text string
 	if focused == userList || focused == searchInput {
@@ -45,9 +45,12 @@ func updateBottomBar(app *tview.Application, bottomBar *tview.TextView, searchIn
 			text += " | ⇥ : Switch to Data"
 		}
 	} else if focused == dataInput {
-		text = "⇥ : Switch to Users"
+		text = "⇥ : Switch to Encrypt Button"
+	} else if focused == encryptButton {
 		if dataInput.GetText() != "" {
-			text += " | ⏎ : Encrypt"
+			text = "⏎ : Encrypt | ⇥ : Switch to Users"
+		} else {
+			text = "⇥ : Switch to Users"
 		}
 	}
 	bottomBar.SetText(text)
@@ -190,9 +193,10 @@ func main() {
 
 	// Declare variables in outer scope.
 	var searchInput *tview.InputField
-	var dataInput *tview.InputField
+	var dataInput *tview.TextArea
 	var layout tview.Primitive
 	var bottomBar *tview.TextView
+	var encryptButton *tview.Button
 
 	go func() {
 		users, err := fetchUsers()
@@ -224,13 +228,13 @@ func main() {
 			}
 			updateUserList(userList, filteredUsers)
 			userList.SetCurrentItem(index)
-			updateBottomBar(app, bottomBar, searchInput, userList, dataInput)
+			updateBottomBar(app, bottomBar, searchInput, userList, dataInput, encryptButton)
 		})
 		userList.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 			if event.Key() == tcell.KeyTab {
 				if len(selectedUsers) > 0 {
 					app.SetFocus(dataInput)
-					updateBottomBar(app, bottomBar, searchInput, userList, dataInput)
+					updateBottomBar(app, bottomBar, searchInput, userList, dataInput, encryptButton)
 				}
 				return nil
 			}
@@ -241,11 +245,11 @@ func main() {
 				app.SetFocus(searchInput)
 				current := searchInput.GetText()
 				searchInput.SetText(current + string(event.Rune()))
-				updateBottomBar(app, bottomBar, searchInput, userList, dataInput)
+				updateBottomBar(app, bottomBar, searchInput, userList, dataInput, encryptButton)
 				return nil
 			default:
 				app.SetFocus(searchInput)
-				updateBottomBar(app, bottomBar, searchInput, userList, dataInput)
+				updateBottomBar(app, bottomBar, searchInput, userList, dataInput, encryptButton)
 				return event
 			}
 		})
@@ -260,13 +264,13 @@ func main() {
 				}
 			}
 			updateUserList(userList, filteredUsers)
-			updateBottomBar(app, bottomBar, searchInput, userList, dataInput)
+			updateBottomBar(app, bottomBar, searchInput, userList, dataInput, encryptButton)
 		})
 		searchInput.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 			switch event.Key() {
 			case tcell.KeyUp, tcell.KeyDown, tcell.KeyEnter:
 				app.SetFocus(userList)
-				updateBottomBar(app, bottomBar, searchInput, userList, dataInput)
+				updateBottomBar(app, bottomBar, searchInput, userList, dataInput, encryptButton)
 				return nil
 			}
 			return event
@@ -278,18 +282,14 @@ func main() {
 			AddItem(userList, 0, 1, false)
 		usersPanel.SetBorder(true).SetTitle("Users")
 
-		// Create Data panel as a simple input field.
-		dataInput = tview.NewInputField()
-		dataInput.SetDoneFunc(func(key tcell.Key) {
-			// Do nothing on Done.
-		})
-		dataInput.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-			if event.Key() == tcell.KeyTab {
-				app.SetFocus(userList)
-				updateBottomBar(app, bottomBar, searchInput, userList, dataInput)
-				return nil
-			}
-			if event.Key() == tcell.KeyEnter {
+		// Create Data panel as a text area.
+		dataInput = tview.NewTextArea().
+			SetWrap(true).
+			SetWordWrap(true)
+			
+		// Add encrypt button
+		encryptButton = tview.NewButton("Encrypt").
+			SetSelectedFunc(func() {
 				if dataInput.GetText() != "" {
 					go func() {
 						encrypted, err := encryptData(dataInput.GetText(), selectedUsers)
@@ -300,7 +300,7 @@ func main() {
 									AddButtons([]string{"OK"}).
 									SetDoneFunc(func(buttonIndex int, buttonLabel string) {
 										app.SetRoot(layout, true).SetFocus(dataInput)
-										updateBottomBar(app, bottomBar, searchInput, userList, dataInput)
+										updateBottomBar(app, bottomBar, searchInput, userList, dataInput, encryptButton)
 									})
 								app.SetRoot(modal, false)
 							})
@@ -310,14 +310,30 @@ func main() {
 						fmt.Println(encrypted)
 					}()
 				}
+			})
+
+		dataInput.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+			if event.Key() == tcell.KeyTab {
+				app.SetFocus(encryptButton)
+				updateBottomBar(app, bottomBar, searchInput, userList, dataInput, encryptButton)
 				return nil
 			}
-			updateBottomBar(app, bottomBar, searchInput, userList, dataInput)
+			updateBottomBar(app, bottomBar, searchInput, userList, dataInput, encryptButton)
+			return event
+		})
+
+		encryptButton.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+			if event.Key() == tcell.KeyTab {
+				app.SetFocus(userList)
+				updateBottomBar(app, bottomBar, searchInput, userList, dataInput, encryptButton)
+				return nil
+			}
 			return event
 		})
 
 		dataPanel := tview.NewFlex().SetDirection(tview.FlexRow).
-			AddItem(dataInput, 0, 1, false)
+			AddItem(dataInput, 0, 1, false).
+			AddItem(encryptButton, 1, 0, false)
 		dataPanel.SetBorder(true).SetTitle("Data")
 
 		// Create Bottom bar.
@@ -337,6 +353,7 @@ func main() {
 		app.QueueUpdateDraw(func() {
 			bottomBar.SetText("↑/↓: move highlight | Enter: toggle selection")
 			app.SetRoot(layout, true).SetFocus(userList)
+			updateBottomBar(app, bottomBar, searchInput, userList, dataInput, encryptButton)
 		})
 	}()
 
