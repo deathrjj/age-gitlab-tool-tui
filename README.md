@@ -1,11 +1,5 @@
 # age-gitlab-tool-tui
 
-Install dependencies:
-
-```bash
-go get github.com/rivo/tview
-```
-
 Setup environment variables:
 
 ```bash
