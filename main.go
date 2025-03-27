@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"filippo.io/age"
+	"filippo.io/age/agessh"
 	"filippo.io/age/armor"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -34,6 +35,24 @@ var httpClient = &http.Client{
 	Timeout: 10 * time.Second,
 }
 
+// updateBottomBar updates the bottom bar text based on current focus.
+func updateBottomBar(app *tview.Application, bottomBar *tview.TextView, searchInput *tview.InputField, userList *tview.List, dataInput *tview.InputField) {
+	focused := app.GetFocus()
+	var text string
+	if focused == userList || focused == searchInput {
+		text = "↑/↓: move highlight | Enter: toggle selection"
+		if len(selectedUsers) > 0 {
+			text += " | Tab: Switch to Data"
+		}
+	} else if focused == dataInput {
+		text = "Tab: Switch to Users"
+		if dataInput.GetText() != "" {
+			text += " | Ctrl+X: Encrypt"
+		}
+	}
+	bottomBar.SetText(text)
+}
+
 // fetchUsers retrieves GitLab users page by page.
 func fetchUsers() ([]User, error) {
 	baseURL := os.Getenv("GITLAB_URL")
@@ -41,7 +60,6 @@ func fetchUsers() ([]User, error) {
 	if baseURL == "" || token == "" {
 		return nil, fmt.Errorf("GITLAB_URL or GITLAB_TOKEN not set")
 	}
-
 	var users []User
 	perPage := 100
 	for page := 1; ; page++ {
@@ -75,7 +93,7 @@ func fetchUsers() ([]User, error) {
 	return users, nil
 }
 
-// fetchUserKeys retrieves the keys for a given user ID.
+// fetchUserKeys retrieves the keys for a given user ID without any splitting.
 func fetchUserKeys(userID int) ([]string, error) {
 	baseURL := os.Getenv("GITLAB_URL")
 	token := os.Getenv("GITLAB_TOKEN")
@@ -116,9 +134,10 @@ func encryptData(plaintext string, selected map[int]bool) (string, error) {
 			return "", err
 		}
 		for _, keyStr := range keys {
-			rec, err := age.ParseX25519Recipient(keyStr)
+			// Use agessh.ParseRecipient to parse an SSH key as an age recipient.
+			rec, err := agessh.ParseRecipient(keyStr)
 			if err != nil {
-				return "", err
+				return "", fmt.Errorf("failed to parse recipient for user %d: %w", uid, err)
 			}
 			recipients = append(recipients, rec)
 		}
@@ -147,7 +166,7 @@ func containsCaseInsensitive(s, substr string) bool {
 }
 
 // updateUserList refreshes the list with filtered users.
-// It prefixes usernames with "- " (white) if unselected or "✓ " (green) if selected.
+// It prefixes usernames with "- " if unselected or "✓ " if selected.
 func updateUserList(list *tview.List, users []User) {
 	list.Clear()
 	for _, user := range users {
@@ -161,98 +180,9 @@ func updateUserList(list *tview.List, users []User) {
 	}
 }
 
-// TextArea is a minimal multi-line input widget.
-type TextArea struct {
-	*tview.Box
-	text         string
-	inputCapture func(event *tcell.EventKey) *tcell.EventKey
-	focusable    bool
-}
-
-func NewTextArea() *TextArea {
-	return &TextArea{
-		Box:       tview.NewBox(),
-		text:      "",
-		focusable: true,
-	}
-}
-
-func (ta *TextArea) SetFocusable(f bool) {
-	ta.focusable = f
-}
-
-func (ta *TextArea) Draw(screen tcell.Screen) {
-	ta.Box.Draw(screen)
-	x, y, width, height := ta.GetInnerRect()
-	lines := strings.Split(ta.text, "\n")
-	for i, line := range lines {
-		if i >= height {
-			break
-		}
-		tview.Print(screen, line, x, y+i, width, tview.AlignLeft, tcell.ColorWhite)
-	}
-}
-
-func (ta *TextArea) InputHandler() func(event *tcell.EventKey, setFocus func(p tview.Primitive)) {
-	return ta.WrapInputHandler(func(event *tcell.EventKey, setFocus func(p tview.Primitive)) {
-		if ta.inputCapture != nil {
-			if captured := ta.inputCapture(event); captured == nil {
-				return
-			}
-		}
-		switch event.Key() {
-		case tcell.KeyBackspace, tcell.KeyBackspace2:
-			if len(ta.text) > 0 {
-				ta.text = ta.text[:len(ta.text)-1]
-			}
-		case tcell.KeyEnter:
-			ta.text += "\n"
-		default:
-			if event.Key() == tcell.KeyRune {
-				ta.text += string(event.Rune())
-			}
-		}
-	})
-}
-
-func (ta *TextArea) SetInputCapture(handler func(event *tcell.EventKey) *tcell.EventKey) {
-	ta.inputCapture = handler
-}
-
-func (ta *TextArea) GetText() string {
-	return ta.text
-}
-
-func (ta *TextArea) Focus(delegate func(p tview.Primitive)) {
-	if ta.focusable {
-		delegate(ta)
-	}
-}
-
-func (ta *TextArea) Blur() {}
-
-// updateBottomBar sets the bottom bar text based on the current focus.
-func updateBottomBar(app *tview.Application, bottomBar *tview.TextView, searchInput *tview.InputField, userList *tview.List, dataInput *TextArea) {
-	focused := app.GetFocus()
-	var text string
-	if focused == userList || focused == searchInput {
-		text = "↑/↓: move highlight | Enter: toggle selection"
-		if len(selectedUsers) > 0 {
-			text += " | Tab: Switch to Data"
-		}
-	} else if dataInput != nil && focused == dataInput {
-		text = "Tab: Switch to Users"
-		if dataInput.GetText() != "" {
-			text += " | Ctrl+X: Encrypt"
-		}
-	}
-	bottomBar.SetText(text)
-}
-
 func main() {
 	app := tview.NewApplication()
 
-	// Show a loading screen.
 	loadingText := tview.NewTextView().
 		SetText("Loading users...").
 		SetTextAlign(tview.AlignCenter)
@@ -260,7 +190,7 @@ func main() {
 
 	// Declare variables in outer scope.
 	var searchInput *tview.InputField
-	var dataInput *TextArea
+	var dataInput *tview.InputField
 	var layout tview.Primitive
 	var bottomBar *tview.TextView
 
@@ -271,9 +201,7 @@ func main() {
 				modal := tview.NewModal().
 					SetText(fmt.Sprintf("Error fetching users: %v", err)).
 					AddButtons([]string{"Quit"}).
-					SetDoneFunc(func(buttonIndex int, buttonLabel string) {
-						app.Stop()
-					})
+					SetDoneFunc(func(buttonIndex int, buttonLabel string) { app.Stop() })
 				app.SetRoot(modal, false)
 			})
 			return
@@ -350,10 +278,11 @@ func main() {
 			AddItem(userList, 0, 1, false)
 		usersPanel.SetBorder(true).SetTitle("Users")
 
-		// Create Data panel.
-		dataInput = NewTextArea()
-		dataInput.SetBorder(true).SetTitle("Data")
-		dataInput.SetFocusable(true)
+		// Create Data panel as a simple input field.
+		dataInput = tview.NewInputField().SetLabel("Data: ")
+		dataInput.SetDoneFunc(func(key tcell.Key) {
+			// Do nothing on Done.
+		})
 		dataInput.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 			if event.Key() == tcell.KeyTab {
 				app.SetFocus(userList)
@@ -387,13 +316,13 @@ func main() {
 			return event
 		})
 
-		// Create Bottom bar and set an initial text.
+		// Create Bottom bar.
 		bottomBar = tview.NewTextView().
 			SetDynamicColors(true).
 			SetTextAlign(tview.AlignCenter)
-		// Set an initial bottom bar text so it's visible immediately.
 		bottomBar.SetText("↑/↓: move highlight | Enter: toggle selection")
 
+		// Main layout: two columns on top, bottom bar as last row.
 		mainFlex := tview.NewFlex().
 			AddItem(usersPanel, 0, 1, true).
 			AddItem(dataInput, 0, 2, true)
