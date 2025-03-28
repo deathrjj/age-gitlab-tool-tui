@@ -93,7 +93,8 @@ Encrypted data output follows the standard `age` ASCII-armored format:
 -----END AGE ENCRYPTED FILE-----
 ```
 
-You can decrypt this data using `age` or compatible tools:
+You can decrypt this data by running this program again with the age file in your clipboard. 
+Or by using `age` or compatible tools:
 
 ```bash
 age -d -i <your-private-key-file> encrypted-file.age
