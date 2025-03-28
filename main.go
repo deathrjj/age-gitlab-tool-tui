@@ -138,13 +138,8 @@ func promptForDecryption(app *tview.Application, encryptedText string) {
 				// Check if private key path is set
 				privateKeyPath := os.Getenv("AGE_PRIVATE_KEY_PATH")
 				if privateKeyPath == "" {
-					errorModal := tview.NewModal().
-						SetText("Error: AGE_PRIVATE_KEY_PATH environment variable is not set.").
-						AddButtons([]string{"OK"}).
-						SetDoneFunc(func(buttonIndex int, buttonLabel string) {
-							app.Stop()
-						})
-					app.SetRoot(errorModal, true)
+					// Prompt for private key path
+					promptForPrivateKeyPath(app, encryptedText)
 					return
 				}
 
@@ -179,6 +174,79 @@ func promptForDecryption(app *tview.Application, encryptedText string) {
 		})
 
 	app.SetRoot(modal, true)
+}
+
+// promptForPrivateKeyPath shows a form to enter the AGE_PRIVATE_KEY_PATH
+func promptForPrivateKeyPath(app *tview.Application, encryptedText string) {
+	form := tview.NewForm()
+	
+	var keyPath string
+	
+	form.AddInputField("Path to SSH private key:", "", 50, nil, func(text string) {
+		keyPath = text
+	})
+	
+	form.AddButton("Continue", func() {
+		if keyPath == "" {
+			errorModal := tview.NewModal().
+				SetText("Please enter a valid file path").
+				AddButtons([]string{"OK"}).
+				SetDoneFunc(func(buttonIndex int, buttonLabel string) {
+					app.SetRoot(form, true)
+				})
+			app.SetRoot(errorModal, true)
+			return
+		}
+		
+		// Check if file exists
+		if _, err := os.Stat(keyPath); os.IsNotExist(err) {
+			errorModal := tview.NewModal().
+				SetText("File does not exist. Please enter a valid path.").
+				AddButtons([]string{"OK"}).
+				SetDoneFunc(func(buttonIndex int, buttonLabel string) {
+					app.SetRoot(form, true)
+				})
+			app.SetRoot(errorModal, true)
+			return
+		}
+		
+		// Set environment variable
+		os.Setenv("AGE_PRIVATE_KEY_PATH", keyPath)
+		
+		// Continue with decryption
+		privateKeyPath := keyPath
+		decrypted, err := decryptAgeFile(encryptedText, privateKeyPath, "")
+		if err != nil {
+			if strings.Contains(err.Error(), "please provide passphrase") {
+				// Key is passphrase protected, prompt for passphrase
+				promptForPassphrase(app, encryptedText, privateKeyPath)
+				return
+			}
+			
+			// Other error
+			errorModal := tview.NewModal().
+				SetText(fmt.Sprintf("Error decrypting: %v", err)).
+				AddButtons([]string{"OK"}).
+				SetDoneFunc(func(buttonIndex int, buttonLabel string) {
+					app.Stop()
+				})
+			app.SetRoot(errorModal, true)
+			return
+		}
+
+		// Show decrypted message and exit
+		app.Stop()
+		fmt.Println("Decrypted message:")
+		fmt.Println(decrypted)
+	})
+	
+	form.AddButton("Cancel", func() {
+		startEncryptionUI(app)
+	})
+	
+	form.SetBorder(true).SetTitle("SSH Private Key Path").SetTitleAlign(tview.AlignCenter)
+	app.SetRoot(form, true)
+	app.SetFocus(form)
 }
 
 // promptForPassphrase shows a prompt for entering the SSH key passphrase
@@ -223,6 +291,114 @@ func promptForPassphrase(app *tview.Application, encryptedText, privateKeyPath s
 
 // startEncryptionUI initializes the encryption UI
 func startEncryptionUI(app *tview.Application) {
+	loadingText := tview.NewTextView().
+		SetText("Initializing...").
+		SetTextAlign(tview.AlignCenter)
+	app.SetRoot(loadingText, true)
+
+	// Check if GitLab URL is set first
+	baseURL := os.Getenv("GITLAB_URL")
+	if baseURL == "" {
+		// First prompt for GitLab URL
+		promptForGitLabURL(app)
+		return
+	}
+	
+	// Then check if GitLab token is set
+	token := os.Getenv("GITLAB_TOKEN")
+	if token == "" {
+		// Then prompt for GitLab token
+		promptForGitLabToken(app)
+		return
+	}
+	
+	// If we have all variables, continue with loading users
+	loadUsers(app)
+}
+
+// promptForGitLabURL shows a form to enter GitLab URL
+func promptForGitLabURL(app *tview.Application) {
+	form := tview.NewForm()
+	
+	var gitlabURL string
+	
+	form.AddInputField("GitLab URL:", "", 50, nil, func(text string) {
+		gitlabURL = text
+	})
+	
+	form.AddButton("Continue", func() {
+		if gitlabURL == "" {
+			errorModal := tview.NewModal().
+				SetText("GitLab URL is required").
+				AddButtons([]string{"OK"}).
+				SetDoneFunc(func(buttonIndex int, buttonLabel string) {
+					app.SetRoot(form, true)
+				})
+			app.SetRoot(errorModal, true)
+			return
+		}
+		
+		// Set environment variable
+		os.Setenv("GITLAB_URL", gitlabURL)
+		
+		// Now check for token
+		token := os.Getenv("GITLAB_TOKEN")
+		if token == "" {
+			promptForGitLabToken(app)
+		} else {
+			loadUsers(app)
+		}
+	})
+	
+	form.AddButton("Cancel", func() {
+		app.Stop()
+	})
+	
+	form.SetBorder(true).SetTitle("GitLab URL").SetTitleAlign(tview.AlignCenter)
+	app.SetRoot(form, true)
+	app.SetFocus(form)
+}
+
+// promptForGitLabToken shows a form to enter GitLab token
+func promptForGitLabToken(app *tview.Application) {
+	form := tview.NewForm()
+	
+	var gitlabToken string
+	
+	form.AddPasswordField("GitLab Token:", "", 50, '*', func(text string) {
+		gitlabToken = text
+	})
+	
+	form.AddButton("Continue", func() {
+		if gitlabToken == "" {
+			errorModal := tview.NewModal().
+				SetText("GitLab token is required").
+				AddButtons([]string{"OK"}).
+				SetDoneFunc(func(buttonIndex int, buttonLabel string) {
+					app.SetRoot(form, true)
+				})
+			app.SetRoot(errorModal, true)
+			return
+		}
+		
+		// Set environment variable
+		os.Setenv("GITLAB_TOKEN", gitlabToken)
+		
+		// Continue with loading users
+		loadUsers(app)
+	})
+	
+	form.AddButton("Cancel", func() {
+		app.Stop()
+	})
+	
+	form.SetBorder(true).SetTitle("GitLab Token").SetTitleAlign(tview.AlignCenter)
+	app.SetRoot(form, true)
+	app.SetFocus(form)
+}
+
+// loadUsers fetches users from GitLab and initializes the encryption UI
+func loadUsers(app *tview.Application) {
 	loadingText := tview.NewTextView().
 		SetText("Loading users...").
 		SetTextAlign(tview.AlignCenter)

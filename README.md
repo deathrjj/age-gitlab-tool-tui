@@ -10,6 +10,7 @@
 - Interactive recipient selection through an intuitive searchable list.
 - Encrypt plaintext data directly from the terminal interface.
 - Generates ASCII-armored ciphertext compatible with the `age` tool.
+- Guided environment setup - prompts for missing configuration values
 
 ## Installation
 
@@ -24,20 +25,22 @@ go install github.com/deathrjj/age-gitlab-tool-tui@v0.1.0
 
 ## Setup
 
-Set the necessary environment variables:
+You can either set environment variables before running the application, or you'll be prompted to enter them interactively when needed:
 
 ```bash
-# Required for encryption:
+# Required for encryption (or enter interactively):
 export GITLAB_URL="https://gitlab.example.com"
 export GITLAB_TOKEN="your_personal_access_token"
 
-# Required for decryption:
+# Required for decryption (or enter interactively):
 export AGE_PRIVATE_KEY_PATH="/path/to/your/private/key.txt"
 ```
 
 - `GITLAB_URL`: URL of your GitLab instance.
 - `GITLAB_TOKEN`: GitLab Personal Access Token with sufficient permissions to read user data and SSH keys.
 - `AGE_PRIVATE_KEY_PATH`: Path to your SSH private key file for decryption (both regular and passphrase-protected keys are supported).
+
+If any of these values are not set when needed, the application will prompt you to enter them.
 
 ## Usage
 
