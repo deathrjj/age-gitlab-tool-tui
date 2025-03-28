@@ -12,6 +12,12 @@
 - Generates ASCII-armored ciphertext compatible with the `age` tool.
 - Guided environment setup - prompts for missing configuration values
 
+## Demo
+
+Check out a brief demonstration of how the tool works:
+
+![Demo](demo.mov)
+
 ## Installation
 
 Ensure you have Go installed on your system. You can download it [here](https://golang.org/dl/).

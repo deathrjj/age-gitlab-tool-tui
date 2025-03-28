@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/deathrjj/age-gitlab-tool-tui/encryption"
 	"github.com/deathrjj/age-gitlab-tool-tui/gitlab"
@@ -214,11 +215,15 @@ func (ui *EncryptionUI) LoadUsers() {
 		searchInput = tview.NewInputField()
 		searchInput.SetChangedFunc(func(text string) {
 			ui.FilteredUsers = nil
+			searchText := strings.ToLower(text)
+			
 			for _, user := range ui.AllUsers {
-				if text == "" || ContainsCaseInsensitive(user.Username, text) {
+				// Always search using original usernames, not censored ones
+				if text == "" || ContainsCaseInsensitive(user.Username, searchText) {
 					ui.FilteredUsers = append(ui.FilteredUsers, user)
 				}
 			}
+			
 			UpdateUserList(userList, ui.FilteredUsers, ui.SelectedUsers)
 			UpdateBottomBar(ui.App, bottomBar, searchInput, userList, dataInput, encryptButton)
 		})

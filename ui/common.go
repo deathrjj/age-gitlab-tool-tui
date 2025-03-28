@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/deathrjj/age-gitlab-tool-tui/models"
@@ -13,6 +14,8 @@ import (
 // It prefixes usernames with "- " if unselected or "✓ " if selected.
 func UpdateUserList(list *tview.List, users []models.User, selectedUsers models.UserSelectionMap) {
 	list.Clear()
+	isDemoMode := os.Getenv("AGE_TOOL_DEMO_MODE") != ""
+	
 	for _, user := range users {
 		prefix := "- "
 		color := "white"
@@ -20,7 +23,14 @@ func UpdateUserList(list *tview.List, users []models.User, selectedUsers models.
 			prefix = "✓ "
 			color = "green"
 		}
-		list.AddItem(fmt.Sprintf("[%s]%s", color, prefix+user.Username), "", 0, nil)
+		
+		username := user.Username
+		if isDemoMode && len(username) > 2 {
+			// In demo mode, censor all characters after the first two
+			username = username[:2] + strings.Repeat("*", len(username)-2)
+		}
+		
+		list.AddItem(fmt.Sprintf("[%s]%s", color, prefix+username), "", 0, nil)
 	}
 }
 
