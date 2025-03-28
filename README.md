@@ -43,7 +43,7 @@ export GITLAB_URL="https://gitlab.example.com"
 export GITLAB_TOKEN="your_personal_access_token"
 
 # Required for decryption (or enter interactively):
-export AGE_PRIVATE_KEY_PATH="/path/to/your/private/key.txt"
+export AGE_PRIVATE_KEY_PATH="$HOME/.ssh/key"
 ```
 
 - `GITLAB_URL`: URL of your GitLab instance.
