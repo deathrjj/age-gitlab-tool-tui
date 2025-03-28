@@ -16,7 +16,11 @@
 
 Check out a brief demonstration of how the tool works:
 
-![Demo](demo.mov)
+
+
+https://github.com/user-attachments/assets/5a12ed7c-a4d8-443a-bad5-98191a34e736
+
+
 
 ## Installation
 
