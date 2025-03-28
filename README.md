@@ -18,7 +18,7 @@ Ensure you have Go installed on your system. You can download it [here](https://
 Clone the repository:
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/deathrjj/age-gitlab-tool-tui.git
 cd age-gitlab-tool-tui
 ```
 
