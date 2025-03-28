@@ -1,4 +1,4 @@
-module age-gitlab-tool
+module github.com/deathrjj/age-gitlab-tool-tui
 
 go 1.24.1
 

@@ -15,17 +15,11 @@
 
 Ensure you have Go installed on your system. You can download it [here](https://golang.org/dl/).
 
-Clone the repository:
+
+Install the package:
 
 ```bash
-git clone https://github.com/deathrjj/age-gitlab-tool-tui.git
-cd age-gitlab-tool-tui
-```
-
-Install required Go dependencies:
-
-```bash
-go mod tidy
+go install github.com/deathrjj/age-gitlab-tool-tui@latest
 ```
 
 ## Setup
@@ -50,7 +44,7 @@ export AGE_PRIVATE_KEY_PATH="/path/to/your/private/key.txt"
 Run the application directly with Go:
 
 ```bash
-go run main.go
+age-gitlab-tool
 ```
 
 ### Encryption
