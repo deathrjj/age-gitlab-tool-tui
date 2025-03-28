@@ -1,4 +1,4 @@
-module tui
+module age-gitlab-tool
 
 go 1.24.1
 
