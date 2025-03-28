@@ -20,7 +20,7 @@ Ensure you have Go installed on your system. You can download it [here](https://
 Install the package:
 
 ```bash
-go install github.com/deathrjj/age-gitlab-tool-tui@v0.1.0
+go install github.com/deathrjj/age-gitlab-tool-tui@v0.2.0
 ```
 
 ## Setup
