@@ -104,6 +104,9 @@ func decryptAgeFile(encryptedText, privateKeyPath, passphrase string) (string, e
 		
 		// Parse the decrypted key
 		sshIdentity, err = agessh.ParseIdentity(decryptedKeyData)
+		if err != nil {
+			return "", fmt.Errorf("failed to parse decrypted SSH key: %w", err)
+		}
 	}
 	
 	if err != nil {
