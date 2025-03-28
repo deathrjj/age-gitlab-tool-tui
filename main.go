@@ -14,6 +14,7 @@ import (
 	"filippo.io/age"
 	"filippo.io/age/agessh"
 	"filippo.io/age/armor"
+	"github.com/atotto/clipboard"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
@@ -33,6 +34,21 @@ var (
 
 var httpClient = &http.Client{
 	Timeout: 10 * time.Second,
+}
+
+// checkClipboardForAgeFile checks if the clipboard contains an age encrypted file
+func checkClipboardForAgeFile() (string, bool) {
+	text, err := clipboard.ReadAll()
+	if err != nil {
+		return "", false
+	}
+
+	// Check for age encrypted file markers
+	if strings.Contains(text, "-----BEGIN AGE ENCRYPTED FILE-----") &&
+		strings.Contains(text, "-----END AGE ENCRYPTED FILE-----") {
+		return text, true
+	}
+	return "", false
 }
 
 // updateBottomBar updates the bottom bar text based on current focus.
@@ -184,6 +200,12 @@ func updateUserList(list *tview.List, users []User) {
 }
 
 func main() {
+	// Check clipboard for age encrypted file
+	if encryptedText, found := checkClipboardForAgeFile(); found {
+		fmt.Println(encryptedText)
+		os.Exit(0)
+	}
+
 	app := tview.NewApplication()
 
 	loadingText := tview.NewTextView().
