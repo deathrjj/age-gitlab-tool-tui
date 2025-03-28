@@ -4,6 +4,8 @@
 
 ## Features
 
+- Detects and offers to decrypt age-encrypted files found in the clipboard
+- Supports passphrase-protected SSH keys for decryption
 - Fetches a list of active GitLab users along with their SSH keys.
 - Interactive recipient selection through an intuitive searchable list.
 - Encrypt plaintext data directly from the terminal interface.
@@ -28,15 +30,20 @@ go mod tidy
 
 ## Setup
 
-Set the necessary environment variables to connect to your GitLab instance:
+Set the necessary environment variables:
 
 ```bash
+# Required for encryption:
 export GITLAB_URL="https://gitlab.example.com"
 export GITLAB_TOKEN="your_personal_access_token"
+
+# Required for decryption:
+export AGE_PRIVATE_KEY_PATH="/path/to/your/private/key.txt"
 ```
 
 - `GITLAB_URL`: URL of your GitLab instance.
 - `GITLAB_TOKEN`: GitLab Personal Access Token with sufficient permissions to read user data and SSH keys.
+- `AGE_PRIVATE_KEY_PATH`: Path to your SSH private key file for decryption (both regular and passphrase-protected keys are supported).
 
 ## Usage
 
@@ -46,7 +53,9 @@ Run the application directly with Go:
 go run main.go
 ```
 
-### Interface Controls
+### Encryption
+
+When started without an age-encrypted file in the clipboard:
 
 - **Recipient List**:
   - `↑ / ↓`: Navigate through the user list.
@@ -61,6 +70,18 @@ go run main.go
   - Select "Encrypt" to generate encrypted output.
 
 After encryption, the encrypted data will be printed to the terminal in ASCII-armored format.
+
+### Decryption
+
+When you have an age-encrypted file in your clipboard:
+
+1. The application will detect it and ask if you want to decrypt it
+2. If you select "Yes", it will:
+   - Check if the `AGE_PRIVATE_KEY_PATH` environment variable is set
+   - Attempt to use the specified private key to decrypt the message
+   - If the key is passphrase-protected, prompt you to enter the passphrase
+   - Output the decrypted content to the terminal
+3. If you select "No", it will proceed with the normal encryption interface
 
 ## Output Example
 
@@ -86,11 +107,18 @@ If the application fails to start or throws an error fetching users, verify:
 - Your personal access token is valid and has the required permissions (`read_user` and `read_ssh_keys`).
 - Network connectivity between your system and the GitLab instance.
 
+For decryption issues:
+- Make sure your `AGE_PRIVATE_KEY_PATH` points to a valid SSH private key file
+- If your key is passphrase-protected, ensure you're entering the correct passphrase
+- The application uses `ssh-keygen` for decrypting passphrase-protected keys, so ensure this tool is available on your system
+- Verify the encrypted content in the clipboard is valid and complete
+
 ## Dependencies
 
 - [rivo/tview](https://github.com/rivo/tview) - Terminal UI components.
 - [gdamore/tcell](https://github.com/gdamore/tcell) - Terminal cell library for TUI.
 - [filippo.io/age](https://github.com/FiloSottile/age) - Encryption library used to perform secure encryption.
+- [atotto/clipboard](https://github.com/atotto/clipboard) - Clipboard access for detecting encrypted files.
 
 ## Contributing
 

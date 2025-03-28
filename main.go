@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"os/exec"
 	"sort"
 	"strings"
 	"time"
@@ -51,163 +52,174 @@ func checkClipboardForAgeFile() (string, bool) {
 	return "", false
 }
 
-// updateBottomBar updates the bottom bar text based on current focus.
-func updateBottomBar(app *tview.Application, bottomBar *tview.TextView, searchInput *tview.InputField, userList *tview.List, dataInput *tview.TextArea, encryptButton *tview.Button) {
-	focused := app.GetFocus()
-	var text string
-	if focused == userList || focused == searchInput {
-		text = "↑/↓: Move Highlight | ⏎ : Toggle Selection"
-		if len(selectedUsers) > 0 {
-			text += " | ⇥ : Switch to Data"
-		}
-	} else if focused == dataInput {
-		text = "⇥ : Switch to Encrypt Button"
-	} else if focused == encryptButton {
-		if dataInput.GetText() != "" {
-			text = "⏎ : Encrypt | ⇥ : Switch to Recipients"
-		} else {
-			text = "⇥ : Switch to Recipients"
-		}
+// decryptAgeFile decrypts an age encrypted file using a private key file
+func decryptAgeFile(encryptedText, privateKeyPath, passphrase string) (string, error) {
+	// Read the private key file
+	keyData, err := ioutil.ReadFile(privateKeyPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read private key file: %w", err)
 	}
-	bottomBar.SetText(text)
+
+	// To handle passphrase-protected SSH keys, we need to use golang.org/x/crypto/ssh
+	// For simplicity, we'll use a workaround - we'll check if ParseIdentity fails with
+	// a passphrase error, and if it does, we'll return a specific error to trigger the passphrase prompt
+	
+	var sshIdentity age.Identity
+	if passphrase == "" {
+		// Try without passphrase
+		sshIdentity, err = agessh.ParseIdentity(keyData)
+		if err != nil && strings.Contains(err.Error(), "passphrase") {
+			return "", fmt.Errorf("ssh key is passphrase protected, please provide passphrase")
+		}
+	} else {
+		// Use age.ParseIdentity as a temporary solution
+		// In a production app, this would be replaced with proper SSH key decryption
+		// using the passphrase and then parsing the decrypted key
+		sshKeyFile, err := os.CreateTemp("", "ssh-key-*")
+		if err != nil {
+			return "", fmt.Errorf("failed to create temp file: %w", err)
+		}
+		defer os.Remove(sshKeyFile.Name())
+		defer sshKeyFile.Close()
+		
+		// Write the key data to the temp file
+		_, err = sshKeyFile.Write(keyData)
+		if err != nil {
+			return "", fmt.Errorf("failed to write temp key file: %w", err)
+		}
+		sshKeyFile.Close()
+		
+		// Run the command to decrypt the key
+		decryptCmd := exec.Command("bash", "-c", 
+			fmt.Sprintf("ssh-keygen -p -P '%s' -N '' -f '%s'", passphrase, sshKeyFile.Name()))
+		if err := decryptCmd.Run(); err != nil {
+			return "", fmt.Errorf("failed to decrypt SSH key with passphrase: %w", err)
+		}
+		
+		// Read the decrypted key
+		decryptedKeyData, err := ioutil.ReadFile(sshKeyFile.Name())
+		if err != nil {
+			return "", fmt.Errorf("failed to read decrypted key: %w", err)
+		}
+		
+		// Parse the decrypted key
+		sshIdentity, err = agessh.ParseIdentity(decryptedKeyData)
+	}
+	
+	if err != nil {
+		return "", fmt.Errorf("failed to parse SSH key: %w", err)
+	}
+
+	// Decrypt the message using the SSH identity
+	r, err := age.Decrypt(armor.NewReader(strings.NewReader(encryptedText)), sshIdentity)
+	if err != nil {
+		return "", fmt.Errorf("failed to decrypt: %w", err)
+	}
+
+	// Read the decrypted content
+	decrypted, err := ioutil.ReadAll(r)
+	if err != nil {
+		return "", fmt.Errorf("failed to read decrypted content: %w", err)
+	}
+
+	return string(decrypted), nil
 }
 
-// fetchUsers retrieves GitLab users page by page.
-func fetchUsers() ([]User, error) {
-	baseURL := os.Getenv("GITLAB_URL")
-	token := os.Getenv("GITLAB_TOKEN")
-	if baseURL == "" || token == "" {
-		return nil, fmt.Errorf("GITLAB_URL or GITLAB_TOKEN not set")
-	}
-	var users []User
-	perPage := 100
-	for page := 1; ; page++ {
-		url := fmt.Sprintf("%s/api/v4/users?active=true&humans=true&exclude_external=true&page=%d&per_page=%d", baseURL, page, perPage)
-		req, err := http.NewRequest("GET", url, nil)
-		if err != nil {
-			return nil, err
-		}
-		req.Header.Add("PRIVATE-TOKEN", token)
-		resp, err := httpClient.Do(req)
-		if err != nil {
-			return nil, err
-		}
-		body, err := ioutil.ReadAll(resp.Body)
-		resp.Body.Close()
-		if err != nil {
-			return nil, err
-		}
-		var pageUsers []User
-		if err := json.Unmarshal(body, &pageUsers); err != nil {
-			return nil, err
-		}
-		users = append(users, pageUsers...)
-		if len(pageUsers) < perPage {
-			break
-		}
-	}
-	sort.Slice(users, func(i, j int) bool {
-		return users[i].Username < users[j].Username
-	})
-	return users, nil
-}
+// promptForDecryption shows a prompt asking if the user wants to decrypt the age file
+func promptForDecryption(app *tview.Application, encryptedText string) {
+	modal := tview.NewModal().
+		SetText("Age file detected in clipboard. Would you like to decrypt it?").
+		AddButtons([]string{"Yes", "No"}).
+		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
+			if buttonLabel == "Yes" {
+				// Check if private key path is set
+				privateKeyPath := os.Getenv("AGE_PRIVATE_KEY_PATH")
+				if privateKeyPath == "" {
+					errorModal := tview.NewModal().
+						SetText("Error: AGE_PRIVATE_KEY_PATH environment variable is not set.").
+						AddButtons([]string{"OK"}).
+						SetDoneFunc(func(buttonIndex int, buttonLabel string) {
+							app.Stop()
+						})
+					app.SetRoot(errorModal, true)
+					return
+				}
 
-// fetchUserKeys retrieves the keys for a given user ID without any splitting.
-func fetchUserKeys(userID int) ([]string, error) {
-	baseURL := os.Getenv("GITLAB_URL")
-	token := os.Getenv("GITLAB_TOKEN")
-	url := fmt.Sprintf("%s/api/v4/users/%d/keys", baseURL, userID)
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Add("PRIVATE-TOKEN", token)
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	body, err := ioutil.ReadAll(resp.Body)
-	resp.Body.Close()
-	if err != nil {
-		return nil, err
-	}
-	var keysResp []struct {
-		Key string `json:"key"`
-	}
-	if err := json.Unmarshal(body, &keysResp); err != nil {
-		return nil, err
-	}
-	var keys []string
-	for _, k := range keysResp {
-		keys = append(keys, k.Key)
-	}
-	return keys, nil
-}
+				// Try to decrypt without passphrase first
+				decrypted, err := decryptAgeFile(encryptedText, privateKeyPath, "")
+				if err != nil {
+					if strings.Contains(err.Error(), "please provide passphrase") {
+						// Key is passphrase protected, prompt for passphrase
+						promptForPassphrase(app, encryptedText, privateKeyPath)
+						return
+					}
+					
+					// Other error
+					errorModal := tview.NewModal().
+						SetText(fmt.Sprintf("Error decrypting: %v", err)).
+						AddButtons([]string{"OK"}).
+						SetDoneFunc(func(buttonIndex int, buttonLabel string) {
+							app.Stop()
+						})
+					app.SetRoot(errorModal, true)
+					return
+				}
 
-// encryptData encrypts plaintext using age with each selected user's key as a recipient.
-func encryptData(plaintext string, selected map[int]bool) (string, error) {
-	var recipients []age.Recipient
-	for uid := range selected {
-		keys, err := fetchUserKeys(uid)
-		if err != nil {
-			return "", err
-		}
-		for _, keyStr := range keys {
-			// Use agessh.ParseRecipient to parse an SSH key as an age recipient.
-			rec, err := agessh.ParseRecipient(keyStr)
-			if err != nil {
-				return "", fmt.Errorf("failed to parse recipient for user %d: %w", uid, err)
+				// Show decrypted message and exit
+				app.Stop()
+				fmt.Println("Decrypted message:")
+				fmt.Println(decrypted)
+			} else {
+				// Continue with normal app flow
+				startEncryptionUI(app)
 			}
-			recipients = append(recipients, rec)
+		})
+
+	app.SetRoot(modal, true)
+}
+
+// promptForPassphrase shows a prompt for entering the SSH key passphrase
+func promptForPassphrase(app *tview.Application, encryptedText, privateKeyPath string) {
+	form := tview.NewForm()
+	
+	var passphrase string
+	
+	form.AddPasswordField("Passphrase:", "", 50, '*', func(text string) {
+		passphrase = text
+	})
+	
+	form.AddButton("Decrypt", func() {
+		// Try to decrypt with provided passphrase
+		decrypted, err := decryptAgeFile(encryptedText, privateKeyPath, passphrase)
+		if err != nil {
+			errorModal := tview.NewModal().
+				SetText(fmt.Sprintf("Error decrypting: %v", err)).
+				AddButtons([]string{"OK"}).
+				SetDoneFunc(func(buttonIndex int, buttonLabel string) {
+					// Go back to passphrase prompt
+					app.SetRoot(form, true)
+				})
+			app.SetRoot(errorModal, true)
+			return
 		}
-	}
-	var buf bytes.Buffer
-	armorWriter := armor.NewWriter(&buf)
-	w, err := age.Encrypt(armorWriter, recipients...)
-	if err != nil {
-		return "", err
-	}
-	if _, err := w.Write([]byte(plaintext)); err != nil {
-		return "", err
-	}
-	if err := w.Close(); err != nil {
-		return "", err
-	}
-	if err := armorWriter.Close(); err != nil {
-		return "", err
-	}
-	return buf.String(), nil
+		
+		// Show decrypted message and exit
+		app.Stop()
+		fmt.Println("Decrypted message:")
+		fmt.Println(decrypted)
+	})
+	
+	form.AddButton("Cancel", func() {
+		startEncryptionUI(app)
+	})
+	
+	form.SetBorder(true).SetTitle("SSH Key Passphrase").SetTitleAlign(tview.AlignCenter)
+	app.SetRoot(form, true)
+	app.SetFocus(form)
 }
 
-// containsCaseInsensitive returns true if s contains substr (case-insensitive).
-func containsCaseInsensitive(s, substr string) bool {
-	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
-}
-
-// updateUserList refreshes the list with filtered users.
-// It prefixes usernames with "- " if unselected or "✓ " if selected.
-func updateUserList(list *tview.List, users []User) {
-	list.Clear()
-	for _, user := range users {
-		prefix := "- "
-		color := "white"
-		if selectedUsers[user.ID] {
-			prefix = "✓ "
-			color = "green"
-		}
-		list.AddItem(fmt.Sprintf("[%s]%s", color, prefix+user.Username), "", 0, nil)
-	}
-}
-
-func main() {
-	// Check clipboard for age encrypted file
-	if encryptedText, found := checkClipboardForAgeFile(); found {
-		fmt.Println(encryptedText)
-		os.Exit(0)
-	}
-
-	app := tview.NewApplication()
-
+// startEncryptionUI initializes the encryption UI
+func startEncryptionUI(app *tview.Application) {
 	loadingText := tview.NewTextView().
 		SetText("Loading users...").
 		SetTextAlign(tview.AlignCenter)
@@ -378,6 +390,165 @@ func main() {
 			updateBottomBar(app, bottomBar, searchInput, userList, dataInput, encryptButton)
 		})
 	}()
+}
+
+// updateBottomBar updates the bottom bar text based on current focus.
+func updateBottomBar(app *tview.Application, bottomBar *tview.TextView, searchInput *tview.InputField, userList *tview.List, dataInput *tview.TextArea, encryptButton *tview.Button) {
+	focused := app.GetFocus()
+	var text string
+	if focused == userList || focused == searchInput {
+		text = "↑/↓: Move Highlight | ⏎ : Toggle Selection"
+		if len(selectedUsers) > 0 {
+			text += " | ⇥ : Switch to Data"
+		}
+	} else if focused == dataInput {
+		text = "⇥ : Switch to Encrypt Button"
+	} else if focused == encryptButton {
+		if dataInput.GetText() != "" {
+			text = "⏎ : Encrypt | ⇥ : Switch to Recipients"
+		} else {
+			text = "⇥ : Switch to Recipients"
+		}
+	}
+	bottomBar.SetText(text)
+}
+
+// fetchUsers retrieves GitLab users page by page.
+func fetchUsers() ([]User, error) {
+	baseURL := os.Getenv("GITLAB_URL")
+	token := os.Getenv("GITLAB_TOKEN")
+	if baseURL == "" || token == "" {
+		return nil, fmt.Errorf("GITLAB_URL or GITLAB_TOKEN not set")
+	}
+	var users []User
+	perPage := 100
+	for page := 1; ; page++ {
+		url := fmt.Sprintf("%s/api/v4/users?active=true&humans=true&exclude_external=true&page=%d&per_page=%d", baseURL, page, perPage)
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Add("PRIVATE-TOKEN", token)
+		resp, err := httpClient.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		body, err := ioutil.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return nil, err
+		}
+		var pageUsers []User
+		if err := json.Unmarshal(body, &pageUsers); err != nil {
+			return nil, err
+		}
+		users = append(users, pageUsers...)
+		if len(pageUsers) < perPage {
+			break
+		}
+	}
+	sort.Slice(users, func(i, j int) bool {
+		return users[i].Username < users[j].Username
+	})
+	return users, nil
+}
+
+// fetchUserKeys retrieves the keys for a given user ID without any splitting.
+func fetchUserKeys(userID int) ([]string, error) {
+	baseURL := os.Getenv("GITLAB_URL")
+	token := os.Getenv("GITLAB_TOKEN")
+	url := fmt.Sprintf("%s/api/v4/users/%d/keys", baseURL, userID)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add("PRIVATE-TOKEN", token)
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	body, err := ioutil.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		return nil, err
+	}
+	var keysResp []struct {
+		Key string `json:"key"`
+	}
+	if err := json.Unmarshal(body, &keysResp); err != nil {
+		return nil, err
+	}
+	var keys []string
+	for _, k := range keysResp {
+		keys = append(keys, k.Key)
+	}
+	return keys, nil
+}
+
+// encryptData encrypts plaintext using age with each selected user's key as a recipient.
+func encryptData(plaintext string, selected map[int]bool) (string, error) {
+	var recipients []age.Recipient
+	for uid := range selected {
+		keys, err := fetchUserKeys(uid)
+		if err != nil {
+			return "", err
+		}
+		for _, keyStr := range keys {
+			// Use agessh.ParseRecipient to parse an SSH key as an age recipient.
+			rec, err := agessh.ParseRecipient(keyStr)
+			if err != nil {
+				return "", fmt.Errorf("failed to parse recipient for user %d: %w", uid, err)
+			}
+			recipients = append(recipients, rec)
+		}
+	}
+	var buf bytes.Buffer
+	armorWriter := armor.NewWriter(&buf)
+	w, err := age.Encrypt(armorWriter, recipients...)
+	if err != nil {
+		return "", err
+	}
+	if _, err := w.Write([]byte(plaintext)); err != nil {
+		return "", err
+	}
+	if err := w.Close(); err != nil {
+		return "", err
+	}
+	if err := armorWriter.Close(); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
+}
+
+// containsCaseInsensitive returns true if s contains substr (case-insensitive).
+func containsCaseInsensitive(s, substr string) bool {
+	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
+}
+
+// updateUserList refreshes the list with filtered users.
+// It prefixes usernames with "- " if unselected or "✓ " if selected.
+func updateUserList(list *tview.List, users []User) {
+	list.Clear()
+	for _, user := range users {
+		prefix := "- "
+		color := "white"
+		if selectedUsers[user.ID] {
+			prefix = "✓ "
+			color = "green"
+		}
+		list.AddItem(fmt.Sprintf("[%s]%s", color, prefix+user.Username), "", 0, nil)
+	}
+}
+
+func main() {
+	app := tview.NewApplication()
+
+	// Check clipboard for age encrypted file
+	if encryptedText, found := checkClipboardForAgeFile(); found {
+		promptForDecryption(app, encryptedText)
+	} else {
+		startEncryptionUI(app)
+	}
 
 	if err := app.Run(); err != nil {
 		panic(err)
