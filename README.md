@@ -41,10 +41,10 @@ export AGE_PRIVATE_KEY_PATH="/path/to/your/private/key.txt"
 
 ## Usage
 
-Run the application directly with Go:
+Run the application directly:
 
 ```bash
-age-gitlab-tool
+age-gitlab-tool-tui
 ```
 
 ### Encryption
